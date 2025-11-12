@@ -11,11 +11,15 @@ public class ProfitTracker {
     private double totalProfit = 0;     // 프로그램 돌리는 동안 누적 수익
     private boolean initialized = false;
 
-    // 프로그램 실행 시 잔고 세팅 및 변화 추적
-    public void trackBalance(JSONObject balanceResponse) {
+    /**
+     * 💰 잔고 추적
+     * @param balanceResponse : 잔고 API 응답
+     * @param showChange : true일 때만 잔고 변화 출력 (매도 직후만 true)
+     */
+    public void trackBalance(JSONObject balanceResponse, boolean showChange) {
         if (balanceResponse == null) return;
 
-        var output2 = balanceResponse.optJSONArray("output2"); // 한국투자 API 응답 구조
+        var output2 = balanceResponse.optJSONArray("output2");
         if (output2 == null || output2.length() == 0) return;
 
         double nowBalance = output2.getJSONObject(0).optDouble("tot_evlu_amt", 0);
@@ -29,10 +33,13 @@ public class ProfitTracker {
         }
 
         double diff = nowBalance - lastBalance;
-        if (diff != 0) {
+        if (showChange && diff != 0) {
             String sign = diff > 0 ? "▲" : "▼";
-            System.out.printf("💰 현재 잔고: %,.0f원 (%s%,.0f원 변화)\n", nowBalance, sign, Math.abs(diff));
+            System.out.printf("💰 현재 잔고: %,.0f원 (%s%,.0f원 변화)\n",
+                    nowBalance, sign, Math.abs(diff));
         }
+
+        // 내부 값은 항상 최신 잔고로 갱신
         lastBalance = nowBalance;
     }
 
@@ -43,10 +50,11 @@ public class ProfitTracker {
         double netProfit = (sellPrice - buyPrice) * qty - commission - tax;
 
         totalProfit += netProfit;
-        System.out.printf("📈 이번 거래 수익: %,.0f원 | 누적 수익: %,.0f원\n", netProfit, totalProfit);
+        System.out.printf("📈 이번 거래 수익: %,.0f원 | 누적 수익: %,.0f원\n",
+                netProfit, totalProfit);
     }
 
-    // 현재 전체 요약 출력
+    // 전체 요약 출력
     public void printSummary() {
         if (!initialized) return;
 

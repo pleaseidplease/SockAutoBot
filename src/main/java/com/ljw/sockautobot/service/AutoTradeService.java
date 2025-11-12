@@ -35,9 +35,10 @@ public class AutoTradeService {
     private int qty = 0;
     private long lastOrderTime = 0L;
 
-    private static final String SYMBOL = "486990"; // 노타
+    private static final String SYMBOL = "460940"; // KODEX 200선물인버스2X
 
-    @Scheduled(cron = "*/5 * 9-18 * * MON-FRI")
+    // ⚡ 공격형: 2초마다 판단
+    @Scheduled(cron = "*/2 * 9-18 * * MON-FRI")
     public void autoTrade() throws JSONException {
         try {
             if (token == null) token = authClient.getAccessToken(appKey, appSecret);
@@ -52,7 +53,7 @@ public class AutoTradeService {
             }
 
             // ✅ 잔고 추적
-            profitTracker.trackBalance(balance);
+            profitTracker.trackBalance(balance, false);
 
             // 보유 수량, 평균단가 조회
             var holdings = balance.optJSONArray("output1");
@@ -83,37 +84,73 @@ public class AutoTradeService {
             System.out.printf("📈 slope=%.5f / accel=%.5f / momentum=%.3f%% / 수익률=%.3f%%\n",
                     slope, accel, momentum, netProfit);
 
-            // 최근 거래 후 5초 이내는 스킵
-            if (System.currentTimeMillis() - lastOrderTime < 5000) {
-                System.out.println("⏳ 최근 거래 이후 5초 미만 — 대기 중...");
+            // 최근 거래 후 3초 이내는 스킵 (속도 조절)
+            if (System.currentTimeMillis() - lastOrderTime < 3000) {
+                System.out.println("⏳ 최근 거래 이후 3초 미만 — 대기 중...");
                 return;
             }
 
-            // 매수 판단
-            if (qty == 0 && calculator.shouldBuy(slope, accel, momentum)) {
+            // 🚀 급상승 감지 매수 (단타 진입)
+            boolean isRapidBuy = slope > 0.005 && accel > 0.02 && momentum > 0.15;
+
+            // 📈 추가 매수 (상승 유지)
+            boolean isAddBuy = qty > 0 && slope > 0.003 && accel > 0;
+
+            // 💰 빠른 익절 / ⚠️ 급락 손절
+            boolean isQuickSell = netProfit > 0.6; // +0.6% 이상 수익
+            boolean isDropSell = slope < -0.004 || accel < -0.02;
+
+            // 🔥 상승세 유지 중일 때 (보유 중일 때만)
+            if (qty > 0 && accel > 0.01 && slope > 0.003) {
+                System.out.println("🔥 상승세 유지 중 — 보유 지속");
+                return;
+            }
+
+            // 🟢 첫 매수 진입
+            if (qty == 0 && isRapidBuy) {
                 limiter.waitForNext();
                 tradeClient.buyStock(token, appKey, appSecret, accountNo, SYMBOL, 1, (int) price);
                 avgBuyPrice = price;
                 qty = 1;
                 lastOrderTime = System.currentTimeMillis();
 
-                System.out.println("🟢 [AI 매수]");
+                System.out.println("🚀 [AI 급상승 진입]");
                 System.out.printf("   └─ 매수가: %,.0f원\n", price);
                 return;
             }
 
-            // 매도 판단
-            if (qty > 0 && calculator.shouldSell(netProfit, slope, accel, momentum)) {
+            // 📈 추가 매수
+            if (isAddBuy && qty < 3 && System.currentTimeMillis() - lastOrderTime > 7000) {
+                limiter.waitForNext();
+                tradeClient.buyStock(token, appKey, appSecret, accountNo, SYMBOL, 1, (int) price);
+                avgBuyPrice = (avgBuyPrice * qty + price) / (qty + 1);
+                qty += 1;
+                lastOrderTime = System.currentTimeMillis();
+
+                System.out.println("📈 [AI 추가 매수] 상승세 지속 확인");
+                return;
+            }
+
+            // 💰 빠른 익절 또는 ⚠️ 급락 손절
+            if (qty > 0 && (isQuickSell || isDropSell)) {
                 limiter.waitForNext();
                 tradeClient.sellStock(token, appKey, appSecret, accountNo, SYMBOL, qty, 0);
                 lastOrderTime = System.currentTimeMillis();
 
-                // ✅ 수익 계산 및 누적 기록
                 profitTracker.recordProfit(price, avgBuyPrice, qty);
-
                 avgBuyPrice = 0;
                 qty = 0;
-                System.out.println("🔴 [AI 매도 완료]");
+
+                if (isQuickSell) {
+                    System.out.println("💰 [AI 단타 익절] 짧은 수익 실현");
+                } else {
+                    System.out.println("⚠️ [AI 급락 손절] 빠른 회피");
+                }
+
+                limiter.waitForNext();
+                JSONObject updatedBalance = balanceClient.getBalance(token, appKey, appSecret, accountNo);
+                profitTracker.trackBalance(updatedBalance, true);
+                return;
             }
 
         } catch (Exception e) {
