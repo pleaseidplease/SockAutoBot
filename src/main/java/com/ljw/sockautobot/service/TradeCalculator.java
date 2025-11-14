@@ -6,6 +6,20 @@ import java.util.LinkedList;
 @Component
 public class TradeCalculator {
 
+    public enum Trend {
+        BULL, BEAR, SIDE
+    }
+
+    public Trend getTrend() {
+        double shortMA = getShortMA();
+        double longMA = getLongMA();
+
+        if (shortMA > longMA * 1.0003) return Trend.BULL;
+        if (shortMA < longMA * 0.9997) return Trend.BEAR;
+        return Trend.SIDE; // 박스권
+    }
+
+
     private final LinkedList<Double> priceHistory = new LinkedList<>();
 
     // 수수료 & 세금
@@ -76,12 +90,34 @@ public class TradeCalculator {
         return (price - prev) / prev * 100; // ← prev 기준으로 변경 (더 직관적)
     }
 
-    // 🟢 매수 조건 (짧게 먹는 스캘핑형)
     public boolean shouldBuy(double slope, double accel, double momentum) {
-        // 상승세가 조금이라도 보이면 진입
-        return (momentum > 0.015 && slope >= 0)
-                || (accel > 0 && momentum > 0.01);
+        Trend trend = getTrend();
+
+        // 하락 추세는 금지
+        if (trend == Trend.BEAR) return false;
+
+        // 과열 조건 조금 완화
+        if (accel > 0.03 || momentum > 0.5 || slope > 0.015) return false;
+
+        // 상승 추세일 때
+        if (trend == Trend.BULL) {
+            boolean strongBuy =
+                    slope > 0.002 &&   // 0.004 → 0.002 로 완화
+                            accel > 0.008 &&   // 0.015 → 0.008
+                            momentum > 0.05;   // 0.10 → 0.05
+
+            boolean reversalBuy =
+                    slope > 0 &&
+                            accel > 0 &&
+                            momentum > 0;
+
+            return strongBuy || reversalBuy;
+        }
+
+        // 박스권일 때도 진입 허용 범위 조금 넓혀줌
+        return slope > 0 && accel > 0 && momentum > 0.03;
     }
+
 
     // 🔴 매도 조건 (익절 + 손절 둘 다 초단기형)
     public boolean shouldSell(double netProfit, double slope, double accel, double momentum) {
@@ -94,4 +130,48 @@ public class TradeCalculator {
 
         return takeProfit || stopLoss || reversal;
     }
+
+    // 📌 단기 20틱 이동평균 (shortMA)
+    public double getShortMA() {
+        int size = priceHistory.size();
+        if (size < 20) return priceHistory.getLast();
+
+        return priceHistory
+                .subList(size - 20, size)
+                .stream()
+                .mapToDouble(Double::doubleValue)
+                .average()
+                .orElse(priceHistory.getLast());
+    }
+
+    // 📌 중기 120틱 이동평균 (longMA)
+    public double getLongMA() {
+        int size = priceHistory.size();
+        if (size < 120) return priceHistory.getLast();
+
+        return priceHistory
+                .subList(size - 120, size)
+                .stream()
+                .mapToDouble(Double::doubleValue)
+                .average()
+                .orElse(priceHistory.getLast());
+    }
+
+    public String getSellReason(double netProfit, double slope, double accel, double momentum) {
+        final double TAKE_PROFIT = 0.35;  // 익절 기준
+        final double STOP_LOSS = -0.25;   // 손절 기준
+
+        if (netProfit >= TAKE_PROFIT) return "익절 기준 도달";
+        if (netProfit <= STOP_LOSS) return "손절 기준 도달";
+        if (slope < 0 && accel < 0 && momentum < -0.01) return "상승 반전 → 하락 전환";
+        if (getShortMA() < getLongMA()) return "추세 이탈 감지 (longMA 아래)";
+
+        return "기타 조건 충족";
+    }
+
+    // 🔥 과열 상태 판단 (매수 신호 강해도 너무 과열이면 진입 금지)
+    public boolean isOverheated(double slope, double accel, double momentum) {
+        return accel > 0.03 || momentum > 0.5 || slope > 0.015;
+    }
+
 }

@@ -2,14 +2,11 @@ package com.ljw.sockautobot.service;
 
 import com.ljw.sockautobot.api.*;
 import lombok.RequiredArgsConstructor;
-import org.json.JSONException;
-import org.json.JSONObject;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
-
-import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
+import org.json.JSONObject;
+import org.json.JSONException;
 
 @Service
 @RequiredArgsConstructor
@@ -19,142 +16,140 @@ public class AutoTradeService {
     private final KisPriceClientApi priceClient;
     private final KisTradeClientApi tradeClient;
     private final KisBalanceClientApi balanceClient;
-    private final TradeCalculator calculator;   // ✅ 계산 전담
-    private final ProfitTracker profitTracker;  // ✅ 수익/잔고 추적 전담
+
+    private final TradeCalculatorHybrid calculator;
+    private final ProfitTracker profitTracker;
 
     @Value("${kis.app-key}") private String appKey;
     @Value("${kis.app-secret}") private String appSecret;
     @Value("${kis.account-no}") private String accountNo;
-    @Value("${kis.mode}") private String kisMode;
 
-    private final DateTimeFormatter fmt = DateTimeFormatter.ofPattern("HH:mm:ss");
     private final KisRateLimiter limiter = new KisRateLimiter();
 
     private String token;
-    private double avgBuyPrice = 0;
     private int qty = 0;
-    private long lastOrderTime = 0L;
+    private double avgBuyPrice = 0;
 
-    private static final String SYMBOL = "460940"; // KODEX 200선물인버스2X
+    private static final String SYMBOL = "298380";
 
-    // ⚡ 공격형: 2초마다 판단
-    @Scheduled(cron = "*/2 * 9-18 * * MON-FRI")
-    public void autoTrade() throws JSONException {
-        try {
-            if (token == null) token = authClient.getAccessToken(appKey, appSecret);
-            limiter.setMode(kisMode);
+    public int getQty() { return qty; }
+    public double getAvgBuyPrice() { return avgBuyPrice; }
 
-            // ✅ 잔고 조회
+
+
+    // ============================================================
+    //  🌅 매일 아침 초기화
+    // ============================================================
+    @Scheduled(cron = "0 0 9 * * MON-FRI")
+    public void initDaily() throws Exception {
+
+        token = authClient.getAccessToken(appKey, appSecret);
+
+        limiter.waitForNext();
+        double prevClose = priceClient.getPrevClose(token, appKey, appSecret, SYMBOL, "virtual");
+
+        calculator.setPrevClose(prevClose);
+        calculator.resetDaily();
+
+        qty = 0;
+        avgBuyPrice = 0;
+
+        System.out.println("🌅 새날 시작 — 전일 종가: " + prevClose);
+    }
+
+
+    // ============================================================
+    //  🚀 하이브리드 자동매매 (2초마다 실행)
+    // ============================================================
+    @Scheduled(cron = "*/2 * 9-15 * * MON-FRI")
+    public void autoTrade() throws Exception {
+
+        if (token == null) token = authClient.getAccessToken(appKey, appSecret);
+
+        limiter.waitForNext();
+        double price = priceClient.getStockPrice(token, appKey, appSecret, SYMBOL, "virtual");
+        calculator.addPrice(price);
+
+
+        double dailyMomentum = calculator.getDailyMomentum(price);
+        double shortMA = calculator.getShortMA();
+        double longMA = calculator.getLongMA();
+        double atr = calculator.getATR();
+
+        double slope = calculator.getSlope();
+        double accel = calculator.getAccel();
+        double instantMom = calculator.getInstantMomentum();
+
+
+        // ---------------------- 로그 ----------------------
+        System.out.printf(
+                "\n📊 price=%.2f qty=%d avg=%.2f | MOM=%.2f%% | slope=%.4f accel=%.4f instMom=%.3f%% | MA=%.2f/%.2f | ATR=%.3f\n",
+                price, qty, avgBuyPrice, dailyMomentum, slope, accel, instantMom, shortMA, longMA, atr
+        );
+
+
+        // ============================================================
+        //  🟢 1차 매수
+        // ============================================================
+        if (qty == 0 && calculator.shouldBuyHybrid(price)) {
+
             limiter.waitForNext();
-            JSONObject balance = balanceClient.getBalance(token, appKey, appSecret, accountNo);
-            if (balance == null) {
-                System.out.println("⚠️ 잔고 조회 실패 - 응답 null");
-                return;
-            }
+            tradeClient.buyStock(token, appKey, appSecret, accountNo, SYMBOL, 1, (int) price);
 
-            // ✅ 잔고 추적
-            profitTracker.trackBalance(balance, false);
+            qty = 1;
+            avgBuyPrice = price;
 
-            // 보유 수량, 평균단가 조회
-            var holdings = balance.optJSONArray("output1");
-            if (holdings != null) {
-                for (int i = 0; i < holdings.length(); i++) {
-                    var stock = holdings.getJSONObject(i);
-                    if (SYMBOL.equals(stock.optString("pdno"))) {
-                        qty = stock.optInt("hldg_qty", 0);
-                        avgBuyPrice = stock.optDouble("pchs_avg_pric", 0);
-                    }
-                }
-            }
+            System.out.println("🟢 [1차 매수] 조건 충족");
+            return;
+        }
 
-            // 📊 현재가 조회
+
+        // ============================================================
+        //  🟢 2차 매수 — 전고점 돌파 시도
+        // ============================================================
+        if (qty == 1 && price > avgBuyPrice * 1.002) {
+
             limiter.waitForNext();
-            double price = priceClient.getStockPrice(token, appKey, appSecret, SYMBOL);
-            calculator.addPrice(price);
+            tradeClient.buyStock(token, appKey, appSecret, accountNo, SYMBOL, 1, (int) price);
 
-            // 계산
-            double slope = calculator.calculateSlope();
-            double accel = calculator.calculateAcceleration();
-            double momentum = calculator.calculateMomentum();
-            double netProfit = calculator.calculateNetProfit(price, avgBuyPrice);
+            avgBuyPrice = (avgBuyPrice + price) / 2;
+            qty = 2;
 
-            String time = LocalDateTime.now().format(fmt);
-            System.out.println("\n=================== 📊 " + SYMBOL + " — " + time + " ===================");
-            System.out.printf("현재가: %,.0f원 | 보유수량: %d | 평균단가: %,.0f원\n", price, qty, avgBuyPrice);
-            System.out.printf("📈 slope=%.5f / accel=%.5f / momentum=%.3f%% / 수익률=%.3f%%\n",
-                    slope, accel, momentum, netProfit);
+            System.out.println("🟢 [2차 매수]");
+            return;
+        }
 
-            // 최근 거래 후 3초 이내는 스킵 (속도 조절)
-            if (System.currentTimeMillis() - lastOrderTime < 3000) {
-                System.out.println("⏳ 최근 거래 이후 3초 미만 — 대기 중...");
-                return;
-            }
 
-            // 🚀 급상승 감지 매수 (단타 진입)
-            boolean isRapidBuy = slope > 0.005 && accel > 0.02 && momentum > 0.15;
+        // ============================================================
+        //  🟢 3차 매수 — 강한 추세 유지
+        // ============================================================
+        if (qty == 2 && shortMA > longMA && slope > 0) {
 
-            // 📈 추가 매수 (상승 유지)
-            boolean isAddBuy = qty > 0 && slope > 0.003 && accel > 0;
+            limiter.waitForNext();
+            tradeClient.buyStock(token, appKey, appSecret, accountNo, SYMBOL, 1, (int) price);
 
-            // 💰 빠른 익절 / ⚠️ 급락 손절
-            boolean isQuickSell = netProfit > 0.6; // +0.6% 이상 수익
-            boolean isDropSell = slope < -0.004 || accel < -0.02;
+            avgBuyPrice = (avgBuyPrice * 2 + price) / 3;
+            qty = 3;
 
-            // 🔥 상승세 유지 중일 때 (보유 중일 때만)
-            if (qty > 0 && accel > 0.01 && slope > 0.003) {
-                System.out.println("🔥 상승세 유지 중 — 보유 지속");
-                return;
-            }
+            System.out.println("🟢 [3차 매수]");
+            return;
+        }
 
-            // 🟢 첫 매수 진입
-            if (qty == 0 && isRapidBuy) {
-                limiter.waitForNext();
-                tradeClient.buyStock(token, appKey, appSecret, accountNo, SYMBOL, 1, (int) price);
-                avgBuyPrice = price;
-                qty = 1;
-                lastOrderTime = System.currentTimeMillis();
 
-                System.out.println("🚀 [AI 급상승 진입]");
-                System.out.printf("   └─ 매수가: %,.0f원\n", price);
-                return;
-            }
+        // ============================================================
+        //  🔴 매도
+        // ============================================================
+        if (qty > 0 && calculator.shouldSellHybrid(price, avgBuyPrice)) {
 
-            // 📈 추가 매수
-            if (isAddBuy && qty < 3 && System.currentTimeMillis() - lastOrderTime > 7000) {
-                limiter.waitForNext();
-                tradeClient.buyStock(token, appKey, appSecret, accountNo, SYMBOL, 1, (int) price);
-                avgBuyPrice = (avgBuyPrice * qty + price) / (qty + 1);
-                qty += 1;
-                lastOrderTime = System.currentTimeMillis();
+            limiter.waitForNext();
+            tradeClient.sellStock(token, appKey, appSecret, accountNo, SYMBOL, qty, 0);
 
-                System.out.println("📈 [AI 추가 매수] 상승세 지속 확인");
-                return;
-            }
+            System.out.println("🔴 [매도] 조건 충족");
 
-            // 💰 빠른 익절 또는 ⚠️ 급락 손절
-            if (qty > 0 && (isQuickSell || isDropSell)) {
-                limiter.waitForNext();
-                tradeClient.sellStock(token, appKey, appSecret, accountNo, SYMBOL, qty, 0);
-                lastOrderTime = System.currentTimeMillis();
+            qty = 0;
+            avgBuyPrice = 0;
+            profitTracker.recordProfit(price, avgBuyPrice, qty);
 
-                profitTracker.recordProfit(price, avgBuyPrice, qty);
-                avgBuyPrice = 0;
-                qty = 0;
-
-                if (isQuickSell) {
-                    System.out.println("💰 [AI 단타 익절] 짧은 수익 실현");
-                } else {
-                    System.out.println("⚠️ [AI 급락 손절] 빠른 회피");
-                }
-
-                limiter.waitForNext();
-                JSONObject updatedBalance = balanceClient.getBalance(token, appKey, appSecret, accountNo);
-                profitTracker.trackBalance(updatedBalance, true);
-                return;
-            }
-
-        } catch (Exception e) {
-            System.out.println("❌ [AutoTrade 오류] " + e.getMessage());
         }
     }
 }

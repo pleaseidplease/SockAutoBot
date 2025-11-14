@@ -3,19 +3,21 @@ package com.ljw.sockautobot.service;
 import org.json.JSONObject;
 import org.springframework.stereotype.Component;
 
+import java.util.ArrayList;
+import java.util.List;
+
 @Component
 public class ProfitTracker {
 
-    private double baseBalance = 0;     // 프로그램 시작 시점 잔고
-    private double lastBalance = 0;     // 최근 잔고
-    private double totalProfit = 0;     // 프로그램 돌리는 동안 누적 수익
+    private double baseBalance = 0;
+    private double lastBalance = 0;
+    private double totalProfit = 0;
     private boolean initialized = false;
 
-    /**
-     * 💰 잔고 추적
-     * @param balanceResponse : 잔고 API 응답
-     * @param showChange : true일 때만 잔고 변화 출력 (매도 직후만 true)
-     */
+    private final List<String> tradeLogs = new ArrayList<>();
+
+
+    /** 잔고 추적 */
     public void trackBalance(JSONObject balanceResponse, boolean showChange) {
         if (balanceResponse == null) return;
 
@@ -28,43 +30,54 @@ public class ProfitTracker {
             baseBalance = nowBalance;
             lastBalance = nowBalance;
             initialized = true;
-            System.out.printf("💵 프로그램 시작 시점 잔고: %,.0f원\n", baseBalance);
+
+            tradeLogs.add("프로그램 시작 잔고: " + nowBalance);
             return;
         }
 
         double diff = nowBalance - lastBalance;
+
         if (showChange && diff != 0) {
-            String sign = diff > 0 ? "▲" : "▼";
-            System.out.printf("💰 현재 잔고: %,.0f원 (%s%,.0f원 변화)\n",
-                    nowBalance, sign, Math.abs(diff));
+            String sign = diff > 0 ? "+" : "-";
+
+            String log = "잔고 변화: " + sign + Math.abs(diff) + "원";
+            tradeLogs.add(log);
         }
 
-        // 내부 값은 항상 최신 잔고로 갱신
         lastBalance = nowBalance;
     }
 
-    // 거래 시 수익 누적
+
+    /** 거래 수익 누적 */
     public void recordProfit(double sellPrice, double buyPrice, int qty) {
+
+        if (qty <= 0) return;
+
         double commission = (sellPrice + buyPrice) * 0.0015 * qty;
         double tax = sellPrice * 0.0015 * qty;
-        double netProfit = (sellPrice - buyPrice) * qty - commission - tax;
 
+        double netProfit = (sellPrice - buyPrice) * qty - commission - tax;
         totalProfit += netProfit;
-        System.out.printf("📈 이번 거래 수익: %,.0f원 | 누적 수익: %,.0f원\n",
-                netProfit, totalProfit);
+
+        tradeLogs.add("거래 수익: " + netProfit + "원 (누적: " + totalProfit + "원)");
     }
 
-    // 전체 요약 출력
-    public void printSummary() {
-        if (!initialized) return;
 
-        double totalChange = lastBalance - baseBalance;
-        String sign = totalChange >= 0 ? "▲" : "▼";
-        System.out.println("\n==================== 📊 프로그램 수익 요약 ====================");
-        System.out.printf("📌 시작 잔고: %,.0f원\n", baseBalance);
-        System.out.printf("📌 현재 잔고: %,.0f원\n", lastBalance);
-        System.out.printf("📌 총 누적 수익: %,.0f원\n", totalProfit);
-        System.out.printf("📌 잔고 변화량: %s%,.0f원\n", sign, Math.abs(totalChange));
-        System.out.println("============================================================\n");
+    /** 로그 반환 (프론트) */
+    public List<String> getLogs() {
+        return tradeLogs;
+    }
+
+
+    /** 요약 정보 반환 (프론트) */
+    public JSONObject getProfitSummary() {
+
+        JSONObject res = new JSONObject();
+        res.put("baseBalance", baseBalance);
+        res.put("currentBalance", lastBalance);
+        res.put("totalProfit", totalProfit);
+        res.put("balanceChange", lastBalance - baseBalance);
+
+        return res;
     }
 }

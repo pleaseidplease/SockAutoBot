@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <title>AI 자동매매 대시보드</title>
+    <link rel="stylesheet" href="/dashboard.css" />
+</head>
+<body>
+
+<div class="container">
+    <h1>📈 AI 자동매매 실시간 대시보드</h1>
+
+    <!-- 실시간 시세 패널 -->
+    <section class="panel">
+        <h2>실시간 시세</h2>
+        <div class="row">
+            <span>현재가</span>
+            <span id="price" class="value"></span>
+        </div>
+        <div class="row">
+            <span>보유 수량</span>
+            <span id="qty" class="value"></span>
+        </div>
+        <div class="row">
+            <span>평균 단가</span>
+            <span id="avg" class="value"></span>
+        </div>
+        <div class="row">
+            <span>수익률</span>
+            <span id="profitRate" class="value"></span>
+        </div>
+    </section>
+
+    <!-- AI 추세 분석 패널 -->
+    <section class="panel">
+        <h2>AI 추세 분석</h2>
+        <div id="ai-status" class="ai-status"></div>
+    </section>
+
+    <!-- 손익/잔고 패널 -->
+    <section class="panel">
+        <h2>손익 / 잔고 현황</h2>
+        <div class="row">
+            <span>시작 잔고</span>
+            <span id="baseBalance" class="value"></span>
+        </div>
+        <div class="row">
+            <span>현재 잔고</span>
+            <span id="currentBalance" class="value"></span>
+        </div>
+        <div class="row">
+            <span>누적 수익</span>
+            <span id="totalProfit" class="value"></span>
+        </div>
+        <div class="row">
+            <span>잔고 변화</span>
+            <span id="balanceChange" class="value"></span>
+        </div>
+        <div class="row">
+            <span>잔고 변화율</span>
+            <span id="balanceChangeRate" class="value"></span>
+        </div>
+    </section>
+
+    <!-- 매매 로그 패널 -->
+    <section class="panel">
+        <h2>매매 / 잔고 로그</h2>
+        <ul id="log-list" class="log-list"></ul>
+    </section>
+</div>
+
+<script src="/dashboard.js"></script>
+</body>
+</html>
