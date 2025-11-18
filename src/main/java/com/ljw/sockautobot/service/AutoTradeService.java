@@ -7,16 +7,19 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.json.JSONObject;
-import org.json.JSONException;
 
 @Service
 @RequiredArgsConstructor
 public class AutoTradeService {
 
+    private final KisMarketApi marketApi;
+
     private final KisAuthClientApi authClient;
     private final KisPriceClientApi priceClient;
     private final KisTradeClientApi tradeClient;
     private final KisBalanceClientApi balanceClient;
+    private final KisTickApi kisTickApi;
+    private final KisOrderBookApi kisOrderBookApi;
 
     private final TradeCalculatorHybrid calculator;
     private final ProfitTracker profitTracker;
@@ -25,6 +28,7 @@ public class AutoTradeService {
     @Value("${kis.app-secret}") private String appSecret;
     @Value("${kis.account-no}") private String accountNo;
 
+    // 🔥 초당 3건 제한 → 350ms 간격 유지
     private final KisRateLimiter limiter = new KisRateLimiter();
 
     private String token;
@@ -35,10 +39,11 @@ public class AutoTradeService {
 
     public int getQty() { return qty; }
     public double getAvgBuyPrice() { return avgBuyPrice; }
-    public String getSymbol(){ return SYMBOL; }
+    public String getSymbol() { return SYMBOL; }
 
-
-    // 주식 종목 변경
+    // ============================================================
+    // 🔵 종목 변경
+    // ============================================================
     public void updateSymbol(String newSymbol){
         if(newSymbol == null || newSymbol.isBlank()){
             System.out.println("종목코드가 비어있습니다.");
@@ -49,6 +54,7 @@ public class AutoTradeService {
         calculator.resetDaily();
 
         try {
+            limiter.waitForNext();
             JSONObject balanceJson = balanceClient.getBalance(token, appKey, appSecret, accountNo);
             loadCurrentHolding(balanceJson);
         } catch (Exception e) {
@@ -57,12 +63,13 @@ public class AutoTradeService {
             this.avgBuyPrice = 0;
         }
 
-        System.out.println("종목 변경 : " + this.SYMBOL +
-                ", 보유수량=" + qty + ", 평균가=" + avgBuyPrice);
+        System.out.println("종목 변경됨: " + SYMBOL);
     }
 
 
-
+    // ============================================================
+    // 🔵 초기화 (매일 1회)
+    // ============================================================
     @PostConstruct
     public void initDaily() throws Exception {
 
@@ -81,7 +88,6 @@ public class AutoTradeService {
         JSONObject balanceJson = balanceClient.getBalance(token, appKey, appSecret, accountNo);
 
         loadCurrentHolding(balanceJson);
-        System.out.println("잔고 조회 : " + balanceJson);
         profitTracker.trackBalance(balanceJson, false);
 
         System.out.println("🌅 새날 시작 — 전일 종가: " + prevClose);
@@ -89,114 +95,160 @@ public class AutoTradeService {
 
 
     // ============================================================
-    //  🚀 하이브리드 자동매매 (2초마다 실행)
+    // 🔥 KOSPI는 10초마다 업데이트 (안정화)
     // ============================================================
-    @Scheduled(cron = "*/2 * 9-15 * * MON-FRI")
-    public void autoTrade() throws Exception {
+    private double kospiCache = 0;
+    private long lastKospiTime = 0;
 
-        if (token == null) token = authClient.getAccessToken(appKey, appSecret);
+    private double getKospiSafe() throws Exception {
+        long now = System.currentTimeMillis();
+
+        if (now - lastKospiTime < 10_000) {
+            return kospiCache; // 10초 이내는 캐시 사용
+        }
 
         limiter.waitForNext();
-        double price = priceClient.getStockPrice(token, appKey, appSecret, SYMBOL, "virtual");
-        calculator.addPrice(price);
+        kospiCache = marketApi.getKospiIndex(token, appKey, appSecret);
+        lastKospiTime = now;
+
+        return kospiCache;
+    }
 
 
-        double dailyMomentum = calculator.getDailyMomentum(price);
-        double shortMA = calculator.getShortMA();
-        double longMA = calculator.getLongMA();
-        double atr = calculator.getATR();
+    // ============================================================
+    //  🚀 하이브리드 자동매매 (2초마다)
+    // ============================================================
+    @Scheduled(cron = "*/1 * 9-15 * * MON-FRI")
+    public void autoTrade() {
+        try {
 
-        double slope = calculator.getSlope();
-        double accel = calculator.getAccel();
-        double instantMom = calculator.getInstantMomentum();
+            if (token == null) {
+                token = authClient.getAccessToken(appKey, appSecret);
+            }
 
-
-        // ---------------------- 로그 ----------------------
-        System.out.printf(
-                "\n📊 price=%.2f qty=%d avg=%.2f | MOM=%.2f%% | slope=%.4f accel=%.4f instMom=%.3f%% | MA=%.2f/%.2f | ATR=%.3f\n",
-                price, qty, avgBuyPrice, dailyMomentum, slope, accel, instantMom, shortMA, longMA, atr
-        );
-
-
-        // ============================================================
-        //  🟢 1차 매수
-        // ============================================================
-        if (qty == 0 && calculator.shouldBuyHybrid(price)) {
-
+            // --------------------------------------------------------
+            // ⭐ 1) 통합 시세
+            // --------------------------------------------------------
             limiter.waitForNext();
-            tradeClient.buyStock(token, appKey, appSecret, accountNo, SYMBOL, 1, (int) price);
+            JSONObject info = priceClient.getUnifiedPrice(token, appKey, appSecret, SYMBOL, "virtual");
 
-            // ⭐ 매수 직후 실시간 잔고 조회로 실제 보유수량 반영
-            JSONObject balanceJson = balanceClient.getBalance(token, appKey, appSecret, accountNo);
-            loadCurrentHolding(balanceJson);
-            profitTracker.trackBalance(balanceJson, true);
+            if (info.isEmpty()) {
+                System.out.println("⚠️ 통합 시세 없음 — skip");
+                return;
+            }
 
-            System.out.println("🟢 [1차 매수] 조건 충족");
-            return;
-        }
+            double newPrice = info.optDouble("price", 0);
+            int volume = info.optInt("volume", 0);
+
+            if (!Double.isFinite(newPrice) || newPrice <= 0) return;
 
 
-        // ============================================================
-        //  🟢 2차 매수 — 전고점 돌파 시도
-        // ============================================================
-        if (qty == 1 && price > avgBuyPrice * 1.002) {
-
+            // --------------------------------------------------------
+            // ⭐ 2) 체결강도
+            // --------------------------------------------------------
             limiter.waitForNext();
-            tradeClient.buyStock(token, appKey, appSecret, accountNo, SYMBOL, 1, (int) price);
-
-            // ⭐ 잔고에서 다시 확인 (부분체결 대비)
-            JSONObject balanceJson = balanceClient.getBalance(token, appKey, appSecret, accountNo);
-            loadCurrentHolding(balanceJson);
-            profitTracker.trackBalance(balanceJson, true);
-
-            System.out.println("🟢 [2차 매수]");
-            return;
-        }
+            double tickStrength = kisTickApi.getTickStrength(token, appKey, appSecret, SYMBOL);
 
 
-        // ============================================================
-        //  🟢 3차 매수 — 강한 추세 유지
-        // ============================================================
-        if (qty == 2 && shortMA > longMA && slope > 0) {
-
+            // --------------------------------------------------------
+            // ⭐ 3) 호가 (orderbook)
+            // --------------------------------------------------------
             limiter.waitForNext();
-            tradeClient.buyStock(token, appKey, appSecret, accountNo, SYMBOL, 1, (int) price);
+            JSONObject orderBook = kisOrderBookApi.getOrderBook(token, appKey, appSecret, SYMBOL);
 
-            JSONObject balanceJson = balanceClient.getBalance(token, appKey, appSecret, accountNo);
-            loadCurrentHolding(balanceJson);
-            profitTracker.trackBalance(balanceJson, true);
+            int askQty = 0;
+            int bidQty = 0;
 
-            System.out.println("🟢 [3차 매수]");
-            return;
-        }
+            if (orderBook != null) {
+                askQty = orderBook.optInt("askp_rsqn1", 0);  // 매도 잔량 1호가
+                bidQty = orderBook.optInt("bidp_rsqn1", 0);  // 매수 잔량 1호가
+            } else {
+                System.out.println("⚠ 호가 데이터 없음 → 0 처리");
+            }
 
 
-        // ============================================================
-        //  🔴 매도
-        // ============================================================
-        if (qty > 0 && calculator.shouldSellHybrid(price, avgBuyPrice)) {
+            // --------------------------------------------------------
+            // ⭐ 4) KOSPI (10초 캐시)
+            // --------------------------------------------------------
+            double kospi = getKospiSafe();
+            calculator.updateMarket(kospi);
 
-            limiter.waitForNext();
-            tradeClient.sellStock(token, appKey, appSecret, accountNo, SYMBOL, qty, 0);
 
-            System.out.println("🔴 [매도] 조건 충족");
+            // --------------------------------------------------------
+            // 🔵 계산기 입력
+            // --------------------------------------------------------
+            calculator.addPrice(newPrice);
+            calculator.updateVolume(volume);
+            calculator.updateTickStrength(tickStrength);
+            calculator.updateOrderBook(bidQty, askQty);
 
-            // ⭐ 매도 직후 최신 잔고 조회
-            JSONObject balanceJson = balanceClient.getBalance(token, appKey, appSecret, accountNo);
 
-            // ⭐ 실제 보유수량/평균단가 다시 계산
-            loadCurrentHolding(balanceJson);
+            // --------------------------------------------------------
+            // 🔵 지표 계산
+            // --------------------------------------------------------
+            double shortMA = calculator.getShortMA();
+            double longMA = calculator.getLongMA();
+            double slope = calculator.getSlope();
+            double accel = calculator.getAccel();
+            double instantMom = calculator.getInstantMomentum();
+            double dailyMomentum = calculator.getDailyMomentum(newPrice);
+            double atr = calculator.getATR();
 
-            // ⭐ 잔고 변화 기록
-            profitTracker.trackBalance(balanceJson, true);
 
-            // ⭐ 수익기록 — qty는 loadCurrentHolding() 이후 값 사용해야 함
-            profitTracker.recordProfit(price, avgBuyPrice, qty);
+            // --------------------------------------------------------
+            // 🔵 매수/매도 로직 (그대로 유지)
+            // --------------------------------------------------------
+            // 1차 매수
+            if (qty == 0 && calculator.shouldBuyPro(newPrice)) {
+                limiter.waitForNext();
+                tradeClient.buyStock(token, appKey, appSecret, accountNo, SYMBOL, 1, (int)newPrice);
+                reloadBalance();
+                profitTracker.logTrade("🟢 매수 — " + SYMBOL);
+                return;
+            }
 
+            // 2차 매수
+            if (qty == 1 && newPrice > avgBuyPrice * 1.002) {
+                limiter.waitForNext();
+                tradeClient.buyStock(token, appKey, appSecret, accountNo, SYMBOL, 1, (int)newPrice);
+                reloadBalance();
+                profitTracker.logTrade("🟢 2차 매수 — " + SYMBOL);
+                return;
+            }
+
+            // 3차 매수
+            if (qty == 2 && shortMA > longMA && slope > 0) {
+                limiter.waitForNext();
+                tradeClient.buyStock(token, appKey, appSecret, accountNo, SYMBOL, 1, (int)newPrice);
+                reloadBalance();
+                profitTracker.logTrade("🟢 3차 매수 — " + SYMBOL);
+                return;
+            }
+
+            // 매도
+            if (qty > 0 && calculator.shouldSellPro(newPrice, avgBuyPrice)) {
+                limiter.waitForNext();
+                tradeClient.sellStock(token, appKey, appSecret, accountNo, SYMBOL, qty, 0);
+                reloadBalance();
+                profitTracker.logTrade("🔴 매도 — " + SYMBOL);
+            }
+
+        } catch (Exception e) {
+            System.err.println("❌ autoTrade 오류 (안전복구됨): " + e.getMessage());
         }
     }
 
-    // 보유수량 확인
+
+    // ============================================================
+    // 🔵 잔고 업데이트
+    // ============================================================
+    private void reloadBalance() throws Exception {
+        limiter.waitForNext(); // API 부하 완화
+        JSONObject balanceJson = balanceClient.getBalance(token, appKey, appSecret, accountNo);
+        loadCurrentHolding(balanceJson);
+        profitTracker.trackBalance(balanceJson, true);
+    }
+
     private void loadCurrentHolding(JSONObject balanceJson) {
         var list = balanceJson.optJSONArray("output1");
         if (list == null) return;
@@ -207,12 +259,10 @@ public class AutoTradeService {
             if (item.optString("pdno", "").trim().equals(SYMBOL.trim())) {
                 this.qty = item.optInt("hldg_qty", 0);
                 this.avgBuyPrice = item.optDouble("pchs_avg_pric", 0);
-                System.out.println("📌 계좌 보유 상태 로드 — qty=" + qty + " avgBuyPrice=" + avgBuyPrice);
                 return;
             }
         }
 
-        // 계좌에 종목이 없을 때
         this.qty = 0;
         this.avgBuyPrice = 0;
     }

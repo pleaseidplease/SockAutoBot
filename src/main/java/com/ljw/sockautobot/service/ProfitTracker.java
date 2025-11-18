@@ -79,6 +79,13 @@ public class ProfitTracker {
     }
 
 
+
+    public void logTrade(String message) {
+        String time = java.time.LocalTime.now().withNano(0).toString();
+        tradeLogs.add("[" + time + "] " + message);
+    }
+
+
     /** 로그 반환 (프론트) */
     public List<String> getLogs() {
         return tradeLogs;

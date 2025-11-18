@@ -148,4 +148,58 @@ public class KisPriceClientApi {
             return 0;
         }
     }
+
+
+    // ==========================================================
+// 📌 현재가 RAW 전체 JSON 반환
+// ==========================================================
+    public JSONObject getStockPriceRaw(
+            String token,
+            String appKey,
+            String appSecret,
+            String symbol,
+            String mode
+    ){
+        JSONObject info = getStockInfo(token, appKey, appSecret, symbol, mode);
+
+        // output 전체를 그대로 반환 (없는 경우 새로운 객체 반환)
+        if (info == null) {
+            return new JSONObject();
+        }
+        return info;
+    }
+
+    // 📌 통합 시세 (DTO 없이 JSONObject 그대로 반환)
+    public JSONObject getUnifiedPrice(String token, String appKey, String appSecret, String symbol, String mode) {
+
+        JSONObject raw = getStockPriceRaw(token, appKey, appSecret, symbol, mode);
+
+        JSONObject out = new JSONObject();
+        if (raw == null || !raw.has("stck_prpr")) {
+            return out; // 비어 있는 JSON
+        }
+
+        try {
+            // 현재가
+            out.put("price", raw.optDouble("stck_prpr", 0));
+
+            // 거래량
+            out.put("volume", raw.optInt("acml_vol", 0));
+
+            // 체결강도
+            int v = raw.optInt("acml_vol", 0);
+            int pv = raw.optInt("prdy_vol", 1);
+            double tickStrength = (v / (double) pv) * 100.0;
+            out.put("tick_strength", Double.isFinite(tickStrength) ? tickStrength : 100);
+
+            // 호가잔량 (1호가만 사용)
+            out.put("ask1_qty", raw.optInt("askp_rsqn1", 0));
+            out.put("bid1_qty", raw.optInt("bidp_rsqn1", 0));
+
+        } catch (Exception ex) {
+            System.out.println("⚠️ 통합 시세 생성 오류: " + ex.getMessage());
+        }
+
+        return out;
+    }
 }

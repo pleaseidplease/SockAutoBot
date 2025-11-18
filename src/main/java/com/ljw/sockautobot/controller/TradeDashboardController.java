@@ -50,6 +50,12 @@ public class TradeDashboardController {
 
         res.put("dailyMomentum", calculator.getDailyMomentum(price));
 
+        res.put("volume", calculator.getVolume());
+        res.put("tickStrength", calculator.getTickStrength());
+        res.put("bidQty", calculator.getBidSum());
+        res.put("askQty", calculator.getAskSum());
+        res.put("kospi", calculator.getKospi());
+
         return res;
     }
 

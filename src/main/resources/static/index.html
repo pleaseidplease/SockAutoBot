@@ -4,77 +4,76 @@
     <meta charset="UTF-8">
     <title>AI 자동매매 대시보드</title>
     <link rel="stylesheet" href="/dashboard.css" />
+    <script src="https://unpkg.com/lightweight-charts@3.8.0/dist/lightweight-charts.standalone.production.js"></script>
 </head>
 <body>
 
 <div class="container">
-    <h1>📈 AI 자동매매 실시간 대시보드</h1>
-    <input type="text" id = "updateSymbol" placeholder="종목코드(예 : 298380)">
-    <button id = "updateSymbolBtn">종목 변경</button>
 
-    <!-- 실시간 시세 패널 -->
+    <h1>📈 AI 자동매매 실시간 대시보드</h1>
+
+    <div class="symbol-box">
+        <input type="text" id="updateSymbol" placeholder="종목코드 (예: 000660)">
+        <button id="updateSymbolBtn">종목 변경</button>
+    </div>
+
+    <div id="trend-banner" class="trend-banner">AI 상태 분석 중...</div>
+
+    <!-- 실시간 차트 -->
+    <section class="panel">
+        <h2>실시간 가격 차트</h2>
+        <div id="chart" style="height: 300px; width: 100%;"></div>
+    </section>
+
+    <!-- 실시간 시세 -->
     <section class="panel">
         <h2>실시간 시세</h2>
-        <div class="row">
-            <span>종목코드</span>
-            <span id="symbol" class="value"></span>
-        </div>
-        <div class="row">
-            <span>현재가</span>
-            <span id="price" class="value"></span>
-        </div>
-        <div class="row">
-            <span>보유 수량</span>
-            <span id="qty" class="value"></span>
-        </div>
-        <div class="row">
-            <span>평균 단가</span>
-            <span id="avg" class="value"></span>
-        </div>
-        <div class="row">
-            <span>수익률</span>
-            <span id="profitRate" class="value"></span>
-        </div>
+        <div class="row"><span>종목코드</span><span id="symbol" class="value"></span></div>
+        <div class="row"><span>현재가</span><span id="price" class="value"></span></div>
+        <div class="row"><span>보유 수량</span><span id="qty" class="value"></span></div>
+        <div class="row"><span>평균 단가</span><span id="avg" class="value"></span></div>
+        <div class="row"><span>수익률</span><span id="profitRate" class="value"></span></div>
+
+        <!-- 🔥 새로 추가 -->
+        <div class="row"><span>거래량</span><span id="volume" class="value"></span></div>
+        <div class="row"><span>체결강도</span><span id="tickStrength" class="value"></span></div>
+        <div class="row"><span>매수 잔량</span><span id="bidQty" class="value"></span></div>
+        <div class="row"><span>매도 잔량</span><span id="askQty" class="value"></span></div>
+        <div class="row"><span>KOSPI 지수</span><span id="kospi" class="value"></span></div>
     </section>
 
-    <!-- AI 추세 분석 패널 -->
+    <!-- AI 지표 패널 -->
     <section class="panel">
         <h2>AI 추세 분석</h2>
-        <div id="ai-status" class="ai-status"></div>
+        <div id="ai-status"></div>
     </section>
 
-    <!-- 손익/잔고 패널 -->
+    <!-- 위험도 -->
+    <section class="panel">
+        <h2>시장 위험도</h2>
+        <div id="risk-level"></div>
+    </section>
+
+    <!-- 잔고 -->
     <section class="panel">
         <h2>손익 / 잔고 현황</h2>
-        <div class="row">
-            <span>시작 잔고</span>
-            <span id="baseBalance" class="value"></span>
-        </div>
-        <div class="row">
-            <span>현재 잔고</span>
-            <span id="currentBalance" class="value"></span>
-        </div>
-        <div class="row">
-            <span>누적 수익</span>
-            <span id="totalProfit" class="value"></span>
-        </div>
-        <div class="row">
-            <span>잔고 변화</span>
-            <span id="balanceChange" class="value"></span>
-        </div>
-        <div class="row">
-            <span>잔고 변화율</span>
-            <span id="balanceChangeRate" class="value"></span>
-        </div>
+        <div class="row"><span>시작 잔고</span><span id="baseBalance" class="value"></span></div>
+        <div class="row"><span>현재 잔고</span><span id="currentBalance" class="value"></span></div>
+        <div class="row"><span>누적 수익</span><span id="totalProfit" class="value"></span></div>
+        <div class="row"><span>잔고 변화</span><span id="balanceChange" class="value"></span></div>
+        <div class="row"><span>잔고 변화율</span><span id="balanceChangeRate" class="value"></span></div>
     </section>
 
-    <!-- 매매 로그 패널 -->
+    <!-- 매매 로그 -->
     <section class="panel">
-        <h2>매매 / 잔고 로그</h2>
+        <h2>매매 로그</h2>
         <ul id="log-list" class="log-list"></ul>
     </section>
+
 </div>
 
+
 <script src="/dashboard.js"></script>
+
 </body>
 </html>
