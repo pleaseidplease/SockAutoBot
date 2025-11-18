@@ -59,7 +59,7 @@ public class TradeDashboardController {
     }
 
     @GetMapping("/profit")
-    public Object getProfit() {
+    public Map<String, Object> getProfit() {
         return profitTracker.getProfitSummary();
     }
 

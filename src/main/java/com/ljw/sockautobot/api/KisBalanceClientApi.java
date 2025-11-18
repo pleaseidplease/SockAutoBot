@@ -18,8 +18,17 @@ public class KisBalanceClientApi {
 
     public JSONObject getBalance(String token, String appKey, String appSecret, String accountNo) {
         try {
-            String cano = accountNo;
-            String acntCd = accountNo.substring(8);
+            // 1) 숫자만 남기기 (하이픈 제거)
+            String clean = accountNo.replaceAll("[^0-9]", "");
+
+            // 2) 최소 10자리 아니면 오류
+            if (clean.length() < 10) {
+                throw new IllegalArgumentException("❌ 계좌번호 형식 오류: " + accountNo);
+            }
+
+            // 3) 앞 8자리 = CANO, 뒤 2자리 = 상품코드
+            String cano = clean.substring(0, 8);
+            String acntCd = clean.substring(8, 10);
 
             String url = UriComponentsBuilder.fromHttpUrl(BALANCE_URL)
                     .queryParam("CANO", cano)

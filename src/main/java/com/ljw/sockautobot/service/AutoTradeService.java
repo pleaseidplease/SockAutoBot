@@ -1,6 +1,7 @@
 package com.ljw.sockautobot.service;
 
 import com.ljw.sockautobot.api.*;
+import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -43,19 +44,26 @@ public class AutoTradeService {
             System.out.println("종목코드가 비어있습니다.");
             return;
         }
+
         this.SYMBOL = newSymbol.trim();
-        this.qty = 0;
-        this.avgBuyPrice = 0;
         calculator.resetDaily();
-        System.out.println("종목 변경 : " + this.SYMBOL);
+
+        try {
+            JSONObject balanceJson = balanceClient.getBalance(token, appKey, appSecret, accountNo);
+            loadCurrentHolding(balanceJson);
+        } catch (Exception e) {
+            e.printStackTrace();
+            this.qty = 0;
+            this.avgBuyPrice = 0;
+        }
+
+        System.out.println("종목 변경 : " + this.SYMBOL +
+                ", 보유수량=" + qty + ", 평균가=" + avgBuyPrice);
     }
 
 
 
-    // ============================================================
-    //  🌅 매일 아침 초기화
-    // ============================================================
-    @Scheduled(cron = "0 0 9 * * MON-FRI")
+    @PostConstruct
     public void initDaily() throws Exception {
 
         token = authClient.getAccessToken(appKey, appSecret);
@@ -70,7 +78,10 @@ public class AutoTradeService {
         avgBuyPrice = 0;
 
         limiter.waitForNext();
-        JSONObject balanceJson = balanceClient.getBalance(token, appKey, appSecret, SYMBOL);
+        JSONObject balanceJson = balanceClient.getBalance(token, appKey, appSecret, accountNo);
+
+        loadCurrentHolding(balanceJson);
+        System.out.println("잔고 조회 : " + balanceJson);
         profitTracker.trackBalance(balanceJson, false);
 
         System.out.println("🌅 새날 시작 — 전일 종가: " + prevClose);
@@ -115,8 +126,10 @@ public class AutoTradeService {
             limiter.waitForNext();
             tradeClient.buyStock(token, appKey, appSecret, accountNo, SYMBOL, 1, (int) price);
 
-            qty = 1;
-            avgBuyPrice = price;
+            // ⭐ 매수 직후 실시간 잔고 조회로 실제 보유수량 반영
+            JSONObject balanceJson = balanceClient.getBalance(token, appKey, appSecret, accountNo);
+            loadCurrentHolding(balanceJson);
+            profitTracker.trackBalance(balanceJson, true);
 
             System.out.println("🟢 [1차 매수] 조건 충족");
             return;
@@ -131,8 +144,10 @@ public class AutoTradeService {
             limiter.waitForNext();
             tradeClient.buyStock(token, appKey, appSecret, accountNo, SYMBOL, 1, (int) price);
 
-            avgBuyPrice = (avgBuyPrice + price) / 2;
-            qty = 2;
+            // ⭐ 잔고에서 다시 확인 (부분체결 대비)
+            JSONObject balanceJson = balanceClient.getBalance(token, appKey, appSecret, accountNo);
+            loadCurrentHolding(balanceJson);
+            profitTracker.trackBalance(balanceJson, true);
 
             System.out.println("🟢 [2차 매수]");
             return;
@@ -147,8 +162,9 @@ public class AutoTradeService {
             limiter.waitForNext();
             tradeClient.buyStock(token, appKey, appSecret, accountNo, SYMBOL, 1, (int) price);
 
-            avgBuyPrice = (avgBuyPrice * 2 + price) / 3;
-            qty = 3;
+            JSONObject balanceJson = balanceClient.getBalance(token, appKey, appSecret, accountNo);
+            loadCurrentHolding(balanceJson);
+            profitTracker.trackBalance(balanceJson, true);
 
             System.out.println("🟢 [3차 매수]");
             return;
@@ -165,22 +181,39 @@ public class AutoTradeService {
 
             System.out.println("🔴 [매도] 조건 충족");
 
-            qty = 0;
-            avgBuyPrice = 0;
+            // ⭐ 매도 직후 최신 잔고 조회
+            JSONObject balanceJson = balanceClient.getBalance(token, appKey, appSecret, accountNo);
+
+            // ⭐ 실제 보유수량/평균단가 다시 계산
+            loadCurrentHolding(balanceJson);
+
+            // ⭐ 잔고 변화 기록
+            profitTracker.trackBalance(balanceJson, true);
+
+            // ⭐ 수익기록 — qty는 loadCurrentHolding() 이후 값 사용해야 함
             profitTracker.recordProfit(price, avgBuyPrice, qty);
 
         }
     }
 
+    // 보유수량 확인
+    private void loadCurrentHolding(JSONObject balanceJson) {
+        var list = balanceJson.optJSONArray("output1");
+        if (list == null) return;
 
-    // 잔고현황 갱신
-    @Scheduled(cron = "*/60 * 9-15 * * MON-FRI")
-    public void syncBalance() throws Exception {
-        if (token == null) token = authClient.getAccessToken(appKey, appSecret);
+        for (int i = 0; i < list.length(); i++) {
+            var item = list.getJSONObject(i);
 
-        limiter.waitForNext();
-        JSONObject balanceJson = balanceClient.getBalance(token, appKey, appSecret, SYMBOL);
+            if (item.optString("pdno", "").trim().equals(SYMBOL.trim())) {
+                this.qty = item.optInt("hldg_qty", 0);
+                this.avgBuyPrice = item.optDouble("pchs_avg_pric", 0);
+                System.out.println("📌 계좌 보유 상태 로드 — qty=" + qty + " avgBuyPrice=" + avgBuyPrice);
+                return;
+            }
+        }
 
-        profitTracker.trackBalance(balanceJson, true);
+        // 계좌에 종목이 없을 때
+        this.qty = 0;
+        this.avgBuyPrice = 0;
     }
 }

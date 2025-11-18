@@ -4,7 +4,9 @@ import org.json.JSONObject;
 import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 @Component
 public class ProfitTracker {
@@ -84,14 +86,13 @@ public class ProfitTracker {
 
 
     /** 요약 정보 반환 (프론트) */
-    public JSONObject getProfitSummary() {
-
-        JSONObject res = new JSONObject();
-        res.put("baseBalance", baseBalance);
-        res.put("currentBalance", lastBalance);
-        res.put("totalProfit", totalProfit);
-        res.put("balanceChange", lastBalance - baseBalance);
-
-        return res;
+    public Map<String, Object> getProfitSummary() {
+        Map<String, Object> map = new HashMap<>();
+        map.put("baseBalance", baseBalance);
+        map.put("currentBalance", lastBalance);
+        map.put("totalProfit", totalProfit);
+        map.put("balanceChange", lastBalance - baseBalance);
+        map.put("balanceChangeRate", getBalanceChangeRate());
+        return map;
     }
 }

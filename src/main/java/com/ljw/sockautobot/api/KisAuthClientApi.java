@@ -26,6 +26,7 @@ public class KisAuthClientApi {
         String cachedToken = readCachedToken(appKey);
         if (cachedToken != null) {
             log.info("🔁 기존 토큰 재사용");
+            log.info(cachedToken);
             return cachedToken;
         }
 
@@ -57,6 +58,7 @@ public class KisAuthClientApi {
         }
 
         String token = json.getString("access_token");
+
         String expiredAtStr = json.optString("access_token_token_expired", null);
 
         // ✅ 3. 만료 시간 계산 (기본 23시간)
@@ -68,6 +70,7 @@ public class KisAuthClientApi {
         saveTokenToFile(appKey, token, expiresAt);
 
         log.info("✅ 새 토큰 발급 완료. 만료 예정 시각: {}", expiresAt);
+        log.info(token);
         return token;
     }
 
