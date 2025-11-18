@@ -9,10 +9,16 @@
 
 <div class="container">
     <h1>📈 AI 자동매매 실시간 대시보드</h1>
+    <input type="text" id = "updateSymbol" placeholder="종목코드(예 : 298380)">
+    <button id = "updateSymbolBtn">종목 변경</button>
 
     <!-- 실시간 시세 패널 -->
     <section class="panel">
         <h2>실시간 시세</h2>
+        <div class="row">
+            <span>종목코드</span>
+            <span id="symbol" class="value"></span>
+        </div>
         <div class="row">
             <span>현재가</span>
             <span id="price" class="value"></span>

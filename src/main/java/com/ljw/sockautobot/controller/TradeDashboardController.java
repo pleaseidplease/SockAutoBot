@@ -26,6 +26,7 @@ public class TradeDashboardController {
         double price = calculator.getLastPrice();
         double avg = autoTradeService.getAvgBuyPrice();
 
+        res.put("symbol", autoTradeService.getSymbol());
         res.put("price", price);
         res.put("qty", autoTradeService.getQty());
         res.put("avgBuyPrice", avg);
@@ -39,6 +40,13 @@ public class TradeDashboardController {
         res.put("shortMA", calculator.getShortMA());
         res.put("longMA", calculator.getLongMA());
         res.put("atr", calculator.getATR());
+
+        // 🔹  손익/잔고 현황
+        res.put("baseBalance", profitTracker.getBaseBalance());          // 시작 잔고
+        res.put("currentBalance", profitTracker.getCurrentBalance());    // 현재 잔고
+        res.put("totalProfit", profitTracker.getTotalProfit());          // 누적 수익
+        res.put("balanceChange", profitTracker.getBalanceChange());      // 잔고 변화액
+        res.put("balanceChangeRate", profitTracker.getBalanceChangeRate()); // 변화율 %
 
         res.put("dailyMomentum", calculator.getDailyMomentum(price));
 
@@ -54,4 +62,18 @@ public class TradeDashboardController {
     public Object getProfit() {
         return profitTracker.getProfitSummary();
     }
+
+
+    // 주식 종목 변경
+    @PostMapping("/updateSymbol")
+    public Map<String, Object> updateSymbol(@RequestBody Map<String, String> body) {
+        String symbol = body.get("symbol");
+        autoTradeService.updateSymbol(symbol);
+
+        Map<String, Object> res = new HashMap<>();
+        res.put("success", true);
+        res.put("symbol", autoTradeService.getSymbol());
+        return res;
+    }
+
 }

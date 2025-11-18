@@ -18,7 +18,7 @@ public class KisBalanceClientApi {
 
     public JSONObject getBalance(String token, String appKey, String appSecret, String accountNo) {
         try {
-            String cano = accountNo.substring(0, 8);
+            String cano = accountNo;
             String acntCd = accountNo.substring(8);
 
             String url = UriComponentsBuilder.fromHttpUrl(BALANCE_URL)

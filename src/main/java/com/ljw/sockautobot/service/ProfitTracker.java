@@ -17,6 +17,20 @@ public class ProfitTracker {
     private final List<String> tradeLogs = new ArrayList<>();
 
 
+    public double getBaseBalance() {return baseBalance;}
+    public double getCurrentBalance() {return lastBalance;}
+    public double getTotalProfit() {return totalProfit;}
+    // 기준 잔고 대비 변화액
+    public double getBalanceChange() {
+        if (!initialized) { return 0;}
+        return lastBalance - baseBalance;
+    }
+    // 기준 잔고 대비 변화율(%)
+    public double getBalanceChangeRate() {
+        if(!initialized || baseBalance == 0) { return 0;}
+        return (lastBalance - baseBalance) / baseBalance * 100.0;
+    }
+
     /** 잔고 추적 */
     public void trackBalance(JSONObject balanceResponse, boolean showChange) {
         if (balanceResponse == null) return;

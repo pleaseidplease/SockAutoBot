@@ -1,3 +1,27 @@
+console.log("### DEBUG JS 2025-11-17 ###");
+
+document.getElementById('updateSymbolBtn').addEventListener('click', async()=> {
+    const symbol = document.getElementById('updateSymbol').value.trim();
+    if(!symbol){
+        alert('종목코드를 입력해주세요');
+        return;
+    }
+
+    const res = await fetch('/api/dashboard/updateSymbol',{
+        method : 'POST',
+        headers : {'Content-Type':'application/json'},
+        body : JSON.stringify({symbol})
+    });
+
+    const data = await res.json();
+    if (data.success){
+        alert(data.symbol+'으로 변경완료');
+        updateStatus();
+    }
+})
+
+
+
 function formatNumber(n) {
     if (n === null || n === undefined || isNaN(n)) return "-";
     return Number(n).toLocaleString();
@@ -12,6 +36,7 @@ function updateStatus() {
 
             // 숫자들 표시
             priceEl.textContent = formatNumber(d.price);
+            document.getElementById("symbol").textContent = d.symbol;
             document.getElementById("qty").textContent = d.qty;
             document.getElementById("avg").textContent = formatNumber(d.avgBuyPrice);
 

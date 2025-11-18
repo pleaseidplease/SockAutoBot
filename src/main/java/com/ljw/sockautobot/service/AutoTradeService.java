@@ -30,10 +30,25 @@ public class AutoTradeService {
     private int qty = 0;
     private double avgBuyPrice = 0;
 
-    private static final String SYMBOL = "298380";
+    private volatile String SYMBOL = "000660";
 
     public int getQty() { return qty; }
     public double getAvgBuyPrice() { return avgBuyPrice; }
+    public String getSymbol(){ return SYMBOL; }
+
+
+    // 주식 종목 변경
+    public void updateSymbol(String newSymbol){
+        if(newSymbol == null || newSymbol.isBlank()){
+            System.out.println("종목코드가 비어있습니다.");
+            return;
+        }
+        this.SYMBOL = newSymbol.trim();
+        this.qty = 0;
+        this.avgBuyPrice = 0;
+        calculator.resetDaily();
+        System.out.println("종목 변경 : " + this.SYMBOL);
+    }
 
 
 
@@ -53,6 +68,10 @@ public class AutoTradeService {
 
         qty = 0;
         avgBuyPrice = 0;
+
+        limiter.waitForNext();
+        JSONObject balanceJson = balanceClient.getBalance(token, appKey, appSecret, SYMBOL);
+        profitTracker.trackBalance(balanceJson, false);
 
         System.out.println("🌅 새날 시작 — 전일 종가: " + prevClose);
     }
@@ -151,5 +170,17 @@ public class AutoTradeService {
             profitTracker.recordProfit(price, avgBuyPrice, qty);
 
         }
+    }
+
+
+    // 잔고현황 갱신
+    @Scheduled(cron = "*/60 * 9-15 * * MON-FRI")
+    public void syncBalance() throws Exception {
+        if (token == null) token = authClient.getAccessToken(appKey, appSecret);
+
+        limiter.waitForNext();
+        JSONObject balanceJson = balanceClient.getBalance(token, appKey, appSecret, SYMBOL);
+
+        profitTracker.trackBalance(balanceJson, true);
     }
 }
