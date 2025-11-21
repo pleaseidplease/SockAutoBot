@@ -200,7 +200,7 @@ public class AutoTradeService {
             // --------------------------------------------------------
             // 1차 매수
             if (qty == 0 && calculator.shouldBuyPro(newPrice)) {
-                limiter.waitForNext();
+
                 tradeClient.buyStock(token, appKey, appSecret, accountNo, SYMBOL, 1, (int)newPrice);
                 reloadBalance();
                 profitTracker.logTrade("🟢 매수 — " + SYMBOL);
@@ -209,7 +209,7 @@ public class AutoTradeService {
 
             // 2차 매수
             if (qty == 1 && newPrice > avgBuyPrice * 1.002) {
-                limiter.waitForNext();
+
                 tradeClient.buyStock(token, appKey, appSecret, accountNo, SYMBOL, 1, (int)newPrice);
                 reloadBalance();
                 profitTracker.logTrade("🟢 2차 매수 — " + SYMBOL);
@@ -218,7 +218,7 @@ public class AutoTradeService {
 
             // 3차 매수
             if (qty == 2 && shortMA > longMA && slope > 0) {
-                limiter.waitForNext();
+
                 tradeClient.buyStock(token, appKey, appSecret, accountNo, SYMBOL, 1, (int)newPrice);
                 reloadBalance();
                 profitTracker.logTrade("🟢 3차 매수 — " + SYMBOL);

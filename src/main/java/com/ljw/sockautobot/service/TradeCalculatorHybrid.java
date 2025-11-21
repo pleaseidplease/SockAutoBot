@@ -182,12 +182,12 @@ public class TradeCalculatorHybrid {
     }
 
     public boolean isVolumeSpike() {
-        if (volumeHistory.size() < 30) return false;
+        //if (volumeHistory.size() < 30) return false;
 
         double avg = volumeHistory.subList(volumeHistory.size() - 30, volumeHistory.size())
                 .stream().mapToInt(Integer::intValue).average().orElse(0);
 
-        return volumeHistory.getLast() > avg * 1.8;
+        return volumeHistory.getLast() > avg ;
     }
 
 
@@ -199,7 +199,7 @@ public class TradeCalculatorHybrid {
     }
 
     public boolean isStrongBuyPressure() {
-        return tickStrength > 110;
+        return tickStrength > 95;
     }
 
 
@@ -213,7 +213,7 @@ public class TradeCalculatorHybrid {
 
     public boolean isOrderBookBullish() {
         if (askSum <= 0) return false;
-        return bidSum > askSum * 1.1;
+        return bidSum > askSum * 0.6;
     }
 
 
@@ -239,16 +239,60 @@ public class TradeCalculatorHybrid {
     // ============================================================
     public boolean shouldBuyPro(double price) {
 
-        if (!isMarketUp()) return false;
-        if (!isVolumeSpike()) return false;
-        if (!isStrongBuyPressure()) return false;
-        if (!isOrderBookBullish()) return false;
+        System.out.println(
+                "\n===== BUY CHECK =====" +
+                        "\nprice=" + price +
+                        "\nVolumeSpike=" + isVolumeSpike() +
+                        " (lastVol=" + (volumeHistory.isEmpty() ? 0 : volumeHistory.getLast()) +
+                        ", avgVol=" + (volumeHistory.size() < 30 ? 0 :
+                        volumeHistory.subList(volumeHistory.size() - 30, volumeHistory.size())
+                                .stream().mapToInt(Integer::intValue).average().orElse(0)) + ")" +
+                        "\ntickStrength=" + tickStrength +
+                        "\norderBook=" + bidSum + "/" + askSum +
+                        "\nShortMA=" + getShortMA() +
+                        "\nLongMA=" + getLongMA() +
+                        "\nSlope=" + getSlope() +
+                        "\nAccel=" + getAccel() +
+                        "\nInstantMomentum=" + getInstantMomentum()
+        );
 
-        if (getShortMA() + 1 < getLongMA()) return false;
-        if (getSlope() <= 0) return false;
-        if (getAccel() <= 0) return false;
-        if (getInstantMomentum() < 0.02) return false;
+        //if (!isMarketUp()) return false;
+        if (!isVolumeSpike()) {
+            System.out.println("❌ BuyFail — 거래량 스파이크 없음");
+            return false;
+        }
 
+        if (!isStrongBuyPressure()) {
+            System.out.println("❌ BuyFail — 체결강도 부족 (" + tickStrength + ")");
+            return false;
+        }
+
+        if (!isOrderBookBullish()) {
+            System.out.println("❌ BuyFail — 호가 잔량 약함 (bid=" + bidSum + ", ask=" + askSum + ")");
+            return false;
+        }
+
+        if (getShortMA() + 0.2 < getLongMA()) {
+            System.out.println("❌ BuyFail — 단기 < 장기 (" + getShortMA() + " / " + getLongMA() + ")");
+            return false;
+        }
+
+        if (getSlope() <= 0) {
+            System.out.println("❌ BuyFail — Slope ≤ 0");
+            return false;
+        }
+
+        if (getAccel() <= 0) {
+            System.out.println("❌ BuyFail — Accel ≤ 0");
+            return false;
+        }
+
+        if (getInstantMomentum() < 0.005) {
+            System.out.println("❌ BuyFail — InstantMomentum 부족 (" + getInstantMomentum() + ")");
+            return false;
+        }
+
+        System.out.println("✅ BuySuccess — 모든 조건 충족");
         return true;
     }
 

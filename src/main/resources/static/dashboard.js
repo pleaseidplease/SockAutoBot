@@ -3,12 +3,15 @@ if (!window.LightweightCharts) {
     console.error("❌ LightweightCharts 라이브러리가 로드되지 않았습니다!");
 }
 
+let chart = null;
+let lineSeries = null;
+
 // ======================================================
 // 1) Lightweight Charts 초기화
 // ======================================================
 const chartDiv = document.getElementById("chart");
 // 🔥 반드시 DOM 요소를 넣어서 createChart 실행해야 한다
-const chart = LightweightCharts.createChart(chartDiv, {
+chart = LightweightCharts.createChart(chartDiv, {
     width: chartDiv.clientWidth,
     height: 350,
     layout: {
@@ -30,11 +33,9 @@ const chart = LightweightCharts.createChart(chartDiv, {
     }
 });
 
-console.log("chart =", chart);
-console.log("chart keys =", Object.keys(chart));
 
 // 🔥 이게 이제 정상적으로 동작한다
-const lineSeries = chart.addLineSeries({
+lineSeries = chart.addLineSeries({
     color: "#2962FF",
     lineWidth: 2,
 });
@@ -58,7 +59,19 @@ function updateChart(price) {
 
 // 리사이즈 대응
 window.addEventListener("resize", () => {
-    chart.applyOptions({ width: chartDiv.clientWidth });
+    chart.applyOptions({
+        layout: {
+            textColor: "#000",
+            fontSize: 14,   // 🔥 글자 크기 증가!
+        },
+        timeScale: {
+            rightOffset: 2,   // 차트가 항상 오른쪽 끝 여유 공간 줌
+            barSpacing: 8,    // 막대 간격
+            timeVisible: true,
+            secondsVisible: true
+        },
+        width: chartDiv.clientWidth
+    });
 });
 
 
